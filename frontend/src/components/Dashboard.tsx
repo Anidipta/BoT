@@ -49,11 +49,11 @@ export default function Dashboard({ walletAddress, onViewDetails }: DashboardPro
     // run immediately (silent)
     runExtraction();
 
-    // set interval every 10 minutes
+    // set interval every 1 minute (user requested)
     if (intervalRef.current) window.clearInterval(intervalRef.current);
     intervalRef.current = window.setInterval(() => {
       runExtraction();
-    }, 600000);
+    }, 60000);
 
     return () => {
       if (intervalRef.current) {
@@ -84,24 +84,57 @@ export default function Dashboard({ walletAddress, onViewDetails }: DashboardPro
         addLog(`Failed to fetch Flow account: ${String(err)}`);
       }
 
-      // Call backend API to save wallet and let server compute token count & metric
-      try {
-        const apiUrl = (import.meta.env.VITE_BACKEND_URL as string) || '';
-        const resp = await fetch(`${apiUrl}/api/upsert-wallet`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ address: addr, balance })
-        });
-        if (resp.ok) {
-          const data = await resp.json();
-          addLog(`Saved metric ${data.metricValue} for ${addr} via API (tokens=${data.tokenCount})`);
-          setWalletMetric(data.metricValue);
-        } else {
-          const txt = await resp.text();
-          addLog(`API error: ${resp.status} ${txt}`);
+      // fetch detailed data from Flowscan (testnet) - collect everything we can
+      const flowscanBase = 'https://testnet.flowscan.org/api';
+      const details: Record<string, unknown> = {};
+      const tryFetch = async (path: string, key: string) => {
+        try {
+          const r = await fetch(`${flowscanBase}${path}`);
+          if (r.ok) {
+            const j = await r.json();
+            details[key] = j;
+            addLog(`Flowscan: fetched ${key} (${Object.keys(j).length || 'items'})`);
+          } else {
+            addLog(`Flowscan ${key} responded ${r.status}`);
+          }
+        } catch (e) {
+          addLog(`Flowscan fetch ${key} failed: ${String(e)}`);
         }
-      } catch (err) {
-        addLog(`Failed to call backend API: ${String(err)}`);
+      };
+
+      // Common endpoints to try — Flowscan uses several paths; tolerate failures
+      await tryFetch(`/address/${addr}`, 'account');
+      await tryFetch(`/address/${addr}/transactions`, 'transactions');
+      await tryFetch(`/address/${addr}/tokens`, 'tokens');
+      await tryFetch(`/address/${addr}/nfts`, 'nfts');
+      await tryFetch(`/address/${addr}/events`, 'events');
+
+      // Compute token count and metric client-side, then persist snapshot in localStorage
+      try {
+        let tokenCount = 0;
+        if (details.tokens && Array.isArray(details.tokens)) tokenCount = details.tokens.length;
+        else if (details.nfts && Array.isArray(details.nfts)) tokenCount = details.nfts.length;
+        else if (Array.isArray(details.transactions)) tokenCount = details.transactions.length;
+
+        const metricValue = Number(balance || 0) + Number(tokenCount || 0);
+
+        // save snapshot locally (frontend-only per user request)
+        try {
+          const key = 'flowscan_snapshots_v1';
+          const raw = localStorage.getItem(key);
+          const arr = raw ? JSON.parse(raw) : [];
+          arr.unshift({ wallet: addr, balance, tokenCount, metricValue, details, fetched_at: new Date().toISOString() });
+          // keep only recent 500 snapshots to avoid unbounded growth
+          const trimmed = arr.slice(0, 500);
+          localStorage.setItem(key, JSON.stringify(trimmed));
+          addLog(`Saved snapshot locally (tokens=${tokenCount}, metric=${metricValue})`);
+        } catch (e) {
+          addLog(`Failed to save snapshot locally: ${String(e)}`);
+        }
+
+        setWalletMetric(metricValue);
+      } catch (e) {
+        addLog(`Failed to compute/save metric locally: ${String(e)}`);
       }
 
       // Update local UI (balance)

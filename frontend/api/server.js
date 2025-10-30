@@ -28,7 +28,8 @@ const connectMongo = async () => {
 
 app.post('/api/upsert-wallet', async (req, res) => {
   try {
-    const { address, balance, tokenCount, metricValue } = req.body;
+    // accept optional 'details' object with raw Flowscan responses
+    const { address, balance, tokenCount, metricValue, details } = req.body;
     if (!address) return res.status(400).json({ error: 'address is required' });
 
     await connectMongo();
@@ -57,6 +58,13 @@ app.post('/api/upsert-wallet', async (req, res) => {
     }
 
     const metricVal = Number(balance || 0) + Number(resolvedTokenCount || 0);
+
+    // store optional raw details snapshot from Flowscan (if provided)
+    if (details) {
+      const snapshots = db.collection('flowscan_snapshots');
+      await snapshots.insertOne({ wallet: address, details, fetched_at: new Date() });
+    }
+
     await analytics.insertOne({ metric_name: `wallet_summary_${address}`, metric_value: metricVal, metric_data: { tokenCount: resolvedTokenCount }, calculated_at: new Date() });
 
     return res.json({ ok: true, metricValue: metricVal, tokenCount: resolvedTokenCount });

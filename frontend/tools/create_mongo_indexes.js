@@ -25,6 +25,11 @@ async function run() {
     await db.collection('analytics_metrics').createIndex({ metric_name: 1 });
     console.log('Created index on analytics_metrics.metric_name');
 
+  // indexes for flowscan snapshots
+  await db.collection('flowscan_snapshots').createIndex({ wallet: 1 });
+  await db.collection('flowscan_snapshots').createIndex({ fetched_at: -1 });
+  console.log('Created indexes on flowscan_snapshots');
+
     console.log('Indexes created successfully');
   } catch (err) {
     console.error('Error creating indexes:', err);

@@ -42,7 +42,7 @@ export default function LandingPage({ onConnect }: LandingPageProps) {
         </header>
 
         <div className="max-w-6xl mx-auto mb-16">
-          <div className="grid md:grid-cols-2 gap-8">
+          <div className="grid md:grid-cols-4 gap-8">
             {features.map((feature, index) => (
               <div
                 key={index}
@@ -93,10 +93,6 @@ export default function LandingPage({ onConnect }: LandingPageProps) {
             <span>CONNECT WALLET</span>
             <ArrowRight className="w-6 h-6" />
           </button>
-
-          <p className="text-green-300 text-xs text-center mt-6 leading-relaxed">
-            Using Flow Testnet — connect your wallet to view real data
-          </p>
         </div>
 
         <footer className="text-center mt-16 text-green-400 text-xs">
