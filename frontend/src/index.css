@@ -8,8 +8,28 @@
   body {
     font-family: 'Press Start 2P', cursive;
     image-rendering: pixelated;
+    /* new base theme: cream -> white -> silver gradient and default text color */
+    background: linear-gradient(135deg, #fffaf3 0%, #ffffff 40%, #f3f4f6 100%);
+    color: #0f172a; /* slate-900 */
   }
 }
+
+:root {
+  /* accent variables */
+  --accent: #d946ef; /* fuchsia-500 */
+  --muted: #64748b; /* slate-500 */
+  --card-bg: #ffffff;
+  --card-border: #e6e7ea;
+}
+
+/* small helper overrides to align legacy blue/cyan usage to the new muted palette */
+.text-cyan-300 { color: var(--muted) !important; }
+.text-yellow-400 { color: var(--accent) !important; }
+.bg-blue-800 { background-color: var(--card-bg) !important; }
+.border-blue-600 { border-color: var(--card-border) !important; }
+.bg-blue-900 { background-color: #f8f6f4 !important; }
+.bg-blue-800\/50 { background-color: rgba(255,255,255,0.5) !important; }
+
 
 @layer utilities {
   .pixel-border {

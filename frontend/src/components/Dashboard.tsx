@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import * as fcl from '@onflow/fcl';
 import { Activity, FileCode, Coins, Zap, ArrowRight, Wallet } from 'lucide-react';
 import StatCard from './StatCard';
@@ -30,14 +30,229 @@ export default function Dashboard({ walletAddress, onViewDetails }: DashboardPro
   const [logs, setLogs] = useState<string[]>([]);
   const intervalRef = useRef<number | null>(null);
 
-  const addLog = (message: string) => {
+  const addLog = useCallback((message: string) => {
     const ts = new Date().toISOString();
     setLogs((l) => [
       `${ts} - ${message}`,
       ...l.slice(0, 49) // keep last 50
     ]);
     console.debug(message);
+  }, []);
+
+  // localStorage helpers (per-wallet keys)
+  const storageKeyFor = useCallback((addr: string) => `flowscan_snapshots_v1_${addr}`, []);
+
+  const loadSnapshots = useCallback((addr: string) => {
+    try {
+      const raw = localStorage.getItem(storageKeyFor(addr));
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      console.warn('Failed to load snapshots', e);
+      return [];
+    }
+  }, [storageKeyFor]);
+
+  const saveSnapshot = useCallback((addr: string, snapshot: Record<string, unknown>) => {
+    try {
+      const key = storageKeyFor(addr);
+      const raw = localStorage.getItem(key);
+      const arr = raw ? JSON.parse(raw) : [];
+      arr.unshift(snapshot);
+      const trimmed = arr.slice(0, 500);
+      localStorage.setItem(key, JSON.stringify(trimmed));
+    } catch (e) {
+      console.warn('Failed to save snapshot', e);
+    }
+  }, [storageKeyFor]);
+
+  const clearSnapshots = useCallback((addr: string) => {
+    try {
+      localStorage.removeItem(storageKeyFor(addr));
+      addLog(`Cleared local snapshots for ${addr}`);
+    } catch (e) {
+      console.warn('Failed to clear snapshots', e);
+    }
+  }, [storageKeyFor, addLog]);
+
+  const handleDisconnect = () => {
+    try {
+      if (walletAddress) clearSnapshots(walletAddress);
+      setWalletMetric(null);
+      addLog('User disconnected');
+    } catch (e) {
+      console.warn('Error during disconnect cleanup', e);
+    }
+    fcl.unauthenticate();
   };
+
+  // extraction function memoized so effect can depend on it safely
+  const extractAndSaveWalletData = useCallback(async (addr: string) => {
+    try {
+      addLog(`Starting extraction for ${addr}`);
+
+      // fetch balance from Flow REST
+      let balance = 0;
+      try {
+        const res = await fetch(`https://rest-testnet.onflow.org/v1/accounts/${addr}`);
+        if (res.ok) {
+          const json = await res.json();
+          balance = Number(json?.account?.balance ?? json?.balance ?? 0) / 1e8;
+          addLog(`Fetched balance ${balance} FLOW for ${addr}`);
+        } else {
+          addLog(`Flow REST responded ${res.status} for ${addr}`);
+        }
+      } catch (err) {
+        addLog(`Failed to fetch Flow account: ${String(err)}`);
+      }
+
+    // fetch detailed data from Flowscan (testnet) - collect everything we can
+    // Use dev proxy when running locally to avoid CORS blocks; in production this will call the real host
+    const flowscanBase = import.meta.env.DEV ? '/flowscan-api/api' : 'https://testnet.flowscan.org/api';
+    // Also allow fetching the public account HTML page (flowscan.io) to extract tx links
+    const flowscanPageBase = import.meta.env.DEV ? '/flowscan-page' : 'https://testnet.flowscan.io';
+    const details: Record<string, unknown> = {};
+      const tryFetch = async (path: string, key: string) => {
+        try {
+          const r = await fetch(`${flowscanBase}${path}`);
+          if (r.ok) {
+            const j = await r.json();
+            details[key] = j;
+            addLog(`Flowscan: fetched ${key} (${Object.keys(j).length || 'items'})`);
+          } else {
+            addLog(`Flowscan ${key} responded ${r.status}`);
+          }
+        } catch (e) {
+          addLog(`Flowscan fetch ${key} failed: ${String(e)}`);
+        }
+      };
+
+      await tryFetch(`/address/${addr}`, 'account');
+      await tryFetch(`/address/${addr}/transactions`, 'transactions');
+      await tryFetch(`/address/${addr}/tokens`, 'tokens');
+      await tryFetch(`/address/${addr}/nfts`, 'nfts');
+      await tryFetch(`/address/${addr}/events`, 'events');
+
+      // Also fetch and parse the Flowscan account HTML page to extract transaction links and other page-only data
+      try {
+        const pageRes = await fetch(`${flowscanPageBase}/account/${addr}`);
+        if (pageRes.ok) {
+          const html = await pageRes.text();
+          try {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const anchors = Array.from(doc.querySelectorAll('a'))
+              .map((a) => a.getAttribute('href') || a.href)
+              .filter(Boolean) as string[];
+            const txLinks = Array.from(new Set(anchors.filter((h) => /transaction|txn|txs|transactions|tx/.test(h))));
+
+            // extract a structured account summary from the page text using heuristics
+            const pageText = doc.body ? doc.body.innerText : html;
+            const extractNumber = (label: string) => {
+              const re = new RegExp(label + '\\s*([\\d,]+\\.?\\d*)', 'i');
+              const m = pageText.match(re);
+              if (m && m[1]) return m[1].replace(/,/g, '');
+              return null;
+            };
+
+            const summary: Record<string, string | null> = {};
+            summary.primary = extractNumber('Primary') || extractNumber('Primary\\s*FLOW');
+            summary.staked = extractNumber('Staked') || null;
+            summary.delegated = extractNumber('Delegated') || null;
+            summary.total = extractNumber('Total') || extractNumber('Total\\s*FLOW');
+            summary.storage_flow = extractNumber('Storage FLOW') || null;
+            // storage size (e.g., "1.43 KB / 9,303.91 GB")
+            const storageMatch = pageText.match(/Storage[\s\S]{0,40}?([\d.,]+\s*(KB|MB|GB|B))/i);
+            summary.storage_size = storageMatch ? storageMatch[1] : null;
+
+            details.page = { txLinks, html_snippet: html.slice(0, 8000), summary };
+            addLog(`Flowscan page parsed: ${txLinks.length} tx links found`);
+
+            // attempt to fetch individual tab pages to extract tables (transactions, scheduled, keys, tokens, ft transfers, nft transfers, collections)
+            const tabNames = [
+              'transactions',
+              'scheduled',
+              'keys',
+              'tokens',
+              'ft-transfers',
+              'nft-transfers',
+              'collections',
+            ];
+            const tabs: Record<string, unknown> = {};
+            for (const tab of tabNames) {
+              try {
+                const tabRes = await fetch(`${flowscanPageBase}/account/${addr}?tab=${tab}`);
+                if (!tabRes.ok) {
+                  addLog(`Flowscan tab ${tab} responded ${tabRes.status}`);
+                  tabs[tab] = { error: `status ${tabRes.status}` };
+                  continue;
+                }
+                const tabHtml = await tabRes.text();
+                const tabDoc = parser.parseFromString(tabHtml, 'text/html');
+                // collect table rows as arrays of cell text and links
+                const rows = Array.from(tabDoc.querySelectorAll('table tr'));
+                const parsedRows = rows.map((tr) => {
+                  const cells = Array.from(tr.querySelectorAll('td')).map((td) => td.innerText.trim());
+                  const links = Array.from(tr.querySelectorAll('a')).map((a) => a.getAttribute('href') || a.href);
+                  return { cells, links };
+                }).filter((r) => r.cells.length > 0);
+                tabs[tab] = parsedRows;
+                addLog(`Parsed ${parsedRows.length} rows from tab ${tab}`);
+              } catch (err) {
+                addLog(`Failed to fetch/parse tab ${tab}: ${String(err)}`);
+                tabs[tab] = { error: String(err) };
+              }
+            }
+            details.page.tabs = tabs;
+
+          } catch (err) {
+            addLog(`Flowscan page parse failed: ${String(err)}`);
+            details.page = { error: String(err) };
+          }
+        } else {
+          addLog(`Flowscan page responded ${pageRes.status}`);
+        }
+      } catch (e) {
+        addLog(`Flowscan page fetch failed: ${String(e)}`);
+      }
+
+      // Compute token count and metric client-side, then persist snapshot in localStorage per-wallet
+      try {
+        let tokenCount = 0;
+        if (details.tokens && Array.isArray(details.tokens)) tokenCount = details.tokens.length;
+        else if (details.nfts && Array.isArray(details.nfts)) tokenCount = details.nfts.length;
+        else if (Array.isArray(details.transactions)) tokenCount = details.transactions.length;
+
+        const metricValue = Number(balance || 0) + Number(tokenCount || 0);
+
+        // Only persist if details have changed compared to last snapshot
+        try {
+          const existing = loadSnapshots(addr);
+          const last = existing && existing.length > 0 ? existing[0] : null;
+          const lastHash = last ? JSON.stringify(last.details || {}) + '|' + String(last.balance || 0) : null;
+          const newHash = JSON.stringify(details || {}) + '|' + String(balance || 0);
+          if (!lastHash || newHash !== lastHash) {
+            const snapshot = { wallet: addr, balance, tokenCount, metricValue, details, fetched_at: new Date().toISOString() };
+            saveSnapshot(addr, snapshot);
+            addLog(`Saved snapshot locally (tokens=${tokenCount}, metric=${metricValue})`);
+          } else {
+            addLog('No changes detected vs last snapshot; skipping save');
+          }
+        } catch (e) {
+          addLog(`Failed to load/save snapshot locally: ${String(e)}`);
+        }
+
+        setWalletMetric(metricValue);
+      } catch (e) {
+        addLog(`Failed to compute/save metric locally: ${String(e)}`);
+      }
+
+      // Update local UI (balance)
+      setStats((s) => ({ ...s, flowBalance: Number(balance) }));
+      setStats((s) => ({ ...s, flowBalance: Number(balance) }));
+    } catch (error) {
+      console.error('Error extracting/saving wallet data:', error);
+    }
+  }, [addLog, loadSnapshots, saveSnapshot]);
 
   useEffect(() => {
     if (!walletAddress) return;
@@ -61,107 +276,27 @@ export default function Dashboard({ walletAddress, onViewDetails }: DashboardPro
         intervalRef.current = null;
       }
     };
-  }, [walletAddress]);
+  }, [walletAddress, extractAndSaveWalletData]);
 
-  // Extract data from Flow REST, upsert wallet and balances, compute a simple metric and save it
-  const extractAndSaveWalletData = async (addr: string) => {
-    try {
-      // Use backend API to upsert and compute metrics so service-role keys are kept server-side
-      addLog(`Starting extraction for ${addr}`);
-
-      // fetch balance from Flow REST
-      let balance = 0;
-      try {
-        const res = await fetch(`https://rest-testnet.onflow.org/v1/accounts/${addr}`);
-        if (res.ok) {
-          const json = await res.json();
-          balance = Number(json?.account?.balance ?? json?.balance ?? 0) / 1e8;
-          addLog(`Fetched balance ${balance} FLOW for ${addr}`);
-        } else {
-          addLog(`Flow REST responded ${res.status} for ${addr}`);
-        }
-      } catch (err) {
-        addLog(`Failed to fetch Flow account: ${String(err)}`);
-      }
-
-      // fetch detailed data from Flowscan (testnet) - collect everything we can
-      const flowscanBase = 'https://testnet.flowscan.org/api';
-      const details: Record<string, unknown> = {};
-      const tryFetch = async (path: string, key: string) => {
-        try {
-          const r = await fetch(`${flowscanBase}${path}`);
-          if (r.ok) {
-            const j = await r.json();
-            details[key] = j;
-            addLog(`Flowscan: fetched ${key} (${Object.keys(j).length || 'items'})`);
-          } else {
-            addLog(`Flowscan ${key} responded ${r.status}`);
-          }
-        } catch (e) {
-          addLog(`Flowscan fetch ${key} failed: ${String(e)}`);
-        }
-      };
-
-      // Common endpoints to try — Flowscan uses several paths; tolerate failures
-      await tryFetch(`/address/${addr}`, 'account');
-      await tryFetch(`/address/${addr}/transactions`, 'transactions');
-      await tryFetch(`/address/${addr}/tokens`, 'tokens');
-      await tryFetch(`/address/${addr}/nfts`, 'nfts');
-      await tryFetch(`/address/${addr}/events`, 'events');
-
-      // Compute token count and metric client-side, then persist snapshot in localStorage
-      try {
-        let tokenCount = 0;
-        if (details.tokens && Array.isArray(details.tokens)) tokenCount = details.tokens.length;
-        else if (details.nfts && Array.isArray(details.nfts)) tokenCount = details.nfts.length;
-        else if (Array.isArray(details.transactions)) tokenCount = details.transactions.length;
-
-        const metricValue = Number(balance || 0) + Number(tokenCount || 0);
-
-        // save snapshot locally (frontend-only per user request)
-        try {
-          const key = 'flowscan_snapshots_v1';
-          const raw = localStorage.getItem(key);
-          const arr = raw ? JSON.parse(raw) : [];
-          arr.unshift({ wallet: addr, balance, tokenCount, metricValue, details, fetched_at: new Date().toISOString() });
-          // keep only recent 500 snapshots to avoid unbounded growth
-          const trimmed = arr.slice(0, 500);
-          localStorage.setItem(key, JSON.stringify(trimmed));
-          addLog(`Saved snapshot locally (tokens=${tokenCount}, metric=${metricValue})`);
-        } catch (e) {
-          addLog(`Failed to save snapshot locally: ${String(e)}`);
-        }
-
-        setWalletMetric(metricValue);
-      } catch (e) {
-        addLog(`Failed to compute/save metric locally: ${String(e)}`);
-      }
-
-      // Update local UI (balance)
-      setStats((s) => ({ ...s, flowBalance: Number(balance) }));
-      setStats((s) => ({ ...s, flowBalance: Number(balance) }));
-    } catch (error) {
-      console.error('Error extracting/saving wallet data:', error);
-    }
-  };
+  
 
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-900 via-blue-800 to-cyan-900">
+    <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-slate-100">
       <div className="container mx-auto px-4 py-8">
         <header className="mb-8">
           <div className="flex items-center justify-between mb-6">
-            <h1 className="text-yellow-400 text-2xl md:text-3xl">DASHBOARD</h1>
+            <h1 className="text-fuchsia-700 text-2xl md:text-3xl">DASHBOARD</h1>
             <div className="flex items-center gap-3">
-              <div className="bg-blue-800 border-4 border-blue-600 px-4 py-2 pixel-corners">
-                <div className="flex items-center gap-2 text-cyan-300 text-xs">
+              <div className="bg-white border-2 border-slate-300 px-4 py-2 pixel-corners">
+                <div className="flex items-center gap-2 text-slate-700 text-xs">
                   <Wallet className="w-4 h-4" />
                   <span className="text-xs font-mono">{formatAddr(walletAddress)}</span>
                 </div>
               </div>
               <button
-                onClick={() => fcl.unauthenticate()}
-                className="bg-red-600 hover:bg-red-500 text-white px-3 py-1 text-xs pixel-corners"
+                onClick={handleDisconnect}
+                className="bg-slate-200 hover:bg-slate-100 text-slate-900 px-3 py-1 text-xs pixel-corners border border-slate-300"
               >
                 Disconnect
               </button>
@@ -216,15 +351,15 @@ export default function Dashboard({ walletAddress, onViewDetails }: DashboardPro
         </div>
 
         <div className="mb-8 flex flex-col md:flex-row gap-4">
-          <div className="bg-blue-800 border-4 border-blue-600 p-4 pixel-corners inline-block">
-            <h3 className="text-yellow-400 text-sm">Computed Wallet Metric</h3>
-            <div className="text-cyan-200 text-2xl font-mono mt-2">{walletMetric !== null ? walletMetric : '—'}</div>
-            <p className="text-blue-300 text-xs mt-1">(balance + token count)</p>
+          <div className="bg-white border-2 border-slate-300 p-4 pixel-corners inline-block">
+            <h3 className="text-fuchsia-700 text-sm">Computed Wallet Metric</h3>
+            <div className="text-slate-800 text-2xl font-mono mt-2">{walletMetric !== null ? walletMetric : '—'}</div>
+            <p className="text-slate-500 text-xs mt-1">(balance + token count)</p>
           </div>
 
-          <div className="bg-blue-800 border-4 border-blue-600 p-4 pixel-corners flex-1">
-            <h3 className="text-yellow-400 text-sm">Recent Logs</h3>
-            <div className="mt-2 text-xs text-blue-300 font-mono max-h-36 overflow-auto">
+          <div className="bg-white border-2 border-slate-300 p-4 pixel-corners flex-1">
+            <h3 className="text-fuchsia-700 text-sm">Recent Logs</h3>
+            <div className="mt-2 text-xs text-slate-500 font-mono max-h-36 overflow-auto">
               {logs.length === 0 ? (
                 <div className="text-blue-400">No logs yet</div>
               ) : (
@@ -260,9 +395,9 @@ export default function Dashboard({ walletAddress, onViewDetails }: DashboardPro
           />
         </div>
 
-        <div className="bg-blue-800 border-4 border-blue-600 p-6 pixel-corners">
+        <div className="bg-white border-2 border-slate-300 p-6 pixel-corners">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-yellow-400 text-xl">Recent Activity</h2>
+            <h2 className="text-fuchsia-700 text-xl">Recent Activity</h2>
             <button
               onClick={() => onViewDetails('transactions')}
               className="text-cyan-300 hover:text-cyan-200 flex items-center gap-2 text-xs"
