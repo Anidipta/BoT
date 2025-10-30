@@ -1,22 +1,32 @@
+![BoT — Book of Truth](logo.png)
+
 # BoT — Book of Truth
 
 ## Overview
 
-BoT is a privacy-first developer toolkit for Flow Testnet that connects a real Flow wallet, scrapes authoritative data from Flowscan and Flow REST, and stores per-wallet snapshots locally for fast, auditable account inspection and lightweight analytics.
+**BoT (Book of Truth)** is a **privacy-first developer toolkit** for the **Flow Testnet** that connects directly to a real Flow wallet, scrapes authoritative data from **Flowscan** and **Flow REST**, and stores **per-wallet snapshots locally** for fast, auditable account inspection and lightweight analytics.
+
+---
 
 ## Unique Selling Proposition (USP)
 
-- Local-first blockchain observability: capture full, verifiable account snapshots in the user's browser (no account telemetry shipped unless explicitly configured).
-- Fast, developer-friendly workflow: connect a Flow wallet and get a detailed account snapshot (balances, tokens, transactions, transfers, collections, keys, scheduled items) in under a minute.
-- Minimal setup: no server required to get started — everything runs in the frontend with a dev-time proxy to avoid CORS.
-- Extensible to production: the same scraping/parsing model can be moved server-side and persisted centrally for multi-user analytics.
+* 🧠 **Local-first blockchain observability** — capture full, verifiable account snapshots directly in your browser (no telemetry leaves your machine unless you choose to share it).
+* ⚡ **Fast, developer-friendly workflow** — connect a Flow wallet and get a comprehensive snapshot (balances, tokens, transactions, keys, collections, etc.) in under a minute.
+* 🧩 **Zero setup** — everything runs in the frontend; just start the dev server and go (Vite proxy handles CORS).
+* 🪄 **Extensible to production** — the same scraping/parsing model scales server-side for team analytics and multi-user environments.
+
+---
 
 ## Vision
 
-Enable developers, auditors, and researchers to quickly access, archive, and analyze on-chain account truths without trading privacy or dev velocity. BoT's goal is to make account-level forensic data immediately available and reusable — bridging the gap between ad-hoc browser scraping and robust analytics pipelines.
+Empower **developers, auditors, and researchers** to access, archive, and analyze on-chain truths **without sacrificing privacy or speed**.
 
-The Idea
---------
+BoT bridges the gap between **ad-hoc scraping** and **robust analytics pipelines**, enabling instant, reproducible, and auditable blockchain insights.
+
+---
+
+## The Idea
+
 Most blockchain analytics workflows require either heavy infrastructure or repeatedly re-running ad-hoc queries. BoT provides a middle path:
 - Let the developer or user own the extraction lifecycle by keeping snapshots local (privacy-first).
 - Provide a single-click path from wallet → snapshot with both structured API data and page-derived UX details (transaction links, table rows, human-readable labels).
@@ -53,7 +63,7 @@ Most blockchain analytics workflows require either heavy infrastructure or repea
 
 BoT focuses on per-wallet, verifiable snapshots. Dune Analytics is a complementary analytics platform focused on large-scale query and visualization over entire on-chain datasets.
 
-How they work together (recommended patterns):
+### How they work together (recommended patterns):
 - Export snapshots
   - Users or administrators can export local snapshots (JSON) and load them into a Dune dataset ingestion point (or store them in a central DB that Dune queries).
 - Curated insights
@@ -61,38 +71,50 @@ How they work together (recommended patterns):
 - Embedding Dune charts
   - While BoT is primarily local-first, a production deployment that stores snapshots centrally can surface Dune charts embedded in the dashboard (Dune's public embed URLs or iFrames) to complement the snapshot view with aggregated charts and historical trends.
 
-Suggested integration workflow
+### Suggested integration workflow
 - Lightweight: Export snapshot JSON → Upload to a shared storage area → Use Dune to build a dataset or visualizations referencing the uploaded data.
 - Server-backed: Persist snapshots into a shared DB (Mongo/Postgres). Configure Dune to query that DB (or export snapshots into a Dune-supported ingestion pipeline) to build dashboards.
 
-## Target Users
 
-- Blockchain developers building Flow-native dApps who need quick account diagnostics.
-- Auditors and security researchers verifying account state, key sets, and historic transactions.
-- Data analysts who want a quick way to identify and promote account-level signals into larger analytics workflows (Dune, Tableau, BigQuery).
+---
 
-## Technical Stack 
+## 🎯 Target Users
 
-- Frontend: Vite, React, TypeScript
-- Styling: TailwindCSS (extended palette for the custom theme)
-- Flow auth: @onflow/fcl (Flow Client Library) for Testnet wallet connectivity
-- Data extraction: client-side fetch() against Flow REST and Flowscan API + HTML parsing via DOMParser
-- Dev tooling: Vite dev-server proxy (to avoid CORS during local development)
+* 👨‍💻 **Flow developers** needing rapid account diagnostics.
+* 🔍 **Auditors & researchers** verifying keys, state, and transactions.
+* 📈 **Data analysts** promoting wallet-level data into larger analytics (Dune, Tableau, BigQuery).
 
-## Roadmap / Next steps
+---
 
-- UX: Add an in-app Snapshots viewer (table + detail view) to avoid using the browser console for inspection — sortable, filterable, with per-tab renderers.
-- Export/Import: Add a JSON export/import tool and a small bulk uploader for central DB ingestion.
-- Server mode: Add optional server-side extraction/persistence (scheduled jobs, background workers) to support many users and Dune ingest.
-- Parsers: Add column-mapping for tabs so transactions, transfers and keys are represented as structured objects with named fields (e.g., txHash, status, block, timestamp).
-- Monitoring & retention: Add configurable retention, snapshot diffs, and snapshot compression/archiving.
+## 🧰 Technical Stack
 
-## Why this approach works
+* **Frontend:** Vite + React + TypeScript
+* **Styling:** TailwindCSS (custom extended theme)
+* **Flow Auth:** @onflow/fcl
+* **Data Extraction:** Flow REST + Flowscan API + DOMParser
+* **Dev Tools:** Vite proxy for local CORS bypass
 
-- Privacy-first: developers and users control whether snapshots leave their browser.
-- Incremental: start local (no infra), then graduate to shared analytics when you need scale.
-- Auditability: raw API responses + page-derived HTML snippets are saved for reproducibility and forensic checks.
+---
 
-## Call to action
+## 🛣️ Roadmap / Next Steps
 
-Connect your Flow Testnet wallet, inspect a live account in under a minute, and export snapshots to plug into your analytics workflow (Dune or a central DB) for deeper signals and dashboards.
+* 🪟 **Snapshots Viewer:** in-app viewer with filtering, sorting, and per-tab rendering.
+* 📦 **Export/Import:** JSON tools + bulk uploader for DB ingestion.
+* 🌐 **Server Mode:** background extractors and persistence for multi-user analytics.
+* 🧩 **Parsers:** structured objects (txHash, block, timestamp, etc.) for all tabs.
+* 🧮 **Monitoring & Retention:** configurable diffs, compression, and archival.
+
+---
+
+## 🔍 Why It Works
+
+✅ **Privacy-first** — you decide when data leaves your browser.
+✅ **Incremental adoption** — start local, scale to cloud as needed.
+✅ **Auditable & reproducible** — raw data and parsed views saved together for traceability.
+
+---
+
+
+## ⚡ Call to Action
+
+> 🪄 Connect your **Flow Testnet wallet**, capture your first **account snapshot** in under a minute, and export it to fuel **your analytics workflows** — from local debugging to full-scale dashboards with **Dune Analytics** or your favorite tools.
