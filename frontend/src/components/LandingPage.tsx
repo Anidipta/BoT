@@ -29,65 +29,93 @@ export default function LandingPage({ onConnect }: LandingPageProps) {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-900 via-green-800 to-emerald-900">
+    <div className="min-h-screen bg-blue-50">
       <div className="container mx-auto px-4 py-8">
+        {/* HEADER */}
         <header className="text-center mb-16 pt-12">
-          <div className="inline-block bg-yellow-400 text-green-900 px-8 py-4 mb-6 pixel-corners">
-            <Book className="w-16 h-16 mx-auto mb-4" />
-            <h1 className="text-2xl md:text-4xl mb-2">BOOK OF TRUTH</h1>
+          <div className="inline-block bg-cyan-400 text-blue-900 px-8 py-6 mb-6 border-4 border-cyan-50">
+            <img 
+              src="https://raw.githubusercontent.com/Anidipta/BoT/main/logo.png" 
+              alt="Book of Truth Logo" 
+              className="w-16 h-16 mb-4 inline-block"
+            />
+            <h1 className="text-3xl md:text-4xl font-bold">BOOK OF TRUTH</h1>
+            <div className="text-xs mt-2 font-mono">Flow Blockchain Explorer</div>
           </div>
-          <p className="text-green-200 text-sm md:text-base max-w-2xl mx-auto leading-relaxed">
-            The Ultimate Flow Blockchain Explorer
+          <p className="text-slate-700 text-sm md:text-base max-w-2xl mx-auto leading-relaxed font-mono mt-6">
+            Complete on-chain data • <span className="neon-text">Real-time analytics</span> • Pixel-perfect insights
           </p>
         </header>
 
+        {/* FEATURES GRID */}
         <div className="max-w-6xl mx-auto mb-16">
-          <div className="grid md:grid-cols-4 gap-8">
+          <div className="grid md:grid-cols-4 gap-4">
             {features.map((feature, index) => (
               <div
                 key={index}
-                className="bg-green-800/50 border-4 border-green-600 p-6 hover:bg-green-700/50 transition-colors pixel-corners"
+                className="pixel-card border-4 border-cyan-50 hover:border-yellow-400 transition-colors"
               >
-                <div className="text-yellow-400 mb-4">{feature.icon}</div>
-                <h3 className="text-yellow-400 text-lg mb-3">{feature.title}</h3>
-                <p className="text-green-200 text-xs leading-relaxed">{feature.description}</p>
+                <div className="text-cyan-400 mb-3">{feature.icon}</div>
+                <h3 className="neon-text text-sm font-bold mb-2">{feature.title}</h3>
+                <p className="text-slate-600 text-xs leading-relaxed">{feature.description}</p>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="max-w-2xl mx-auto bg-green-800 border-4 border-green-600 p-8 pixel-corners">
-          <h2 className="text-yellow-400 text-xl mb-6 text-center">How to Access</h2>
-          <div className="space-y-4 mb-8">
-            <div className="flex items-start gap-4">
-              <div className="bg-yellow-400 text-green-900 w-8 h-8 flex items-center justify-center flex-shrink-0 pixel-corners text-sm font-bold">
+        {/* CTA PANEL */}
+        <div className="max-w-2xl mx-auto pixel-card border-4 border-cyan-400">
+          <h2 className="neon-text text-lg font-bold mb-6 text-center">QUICKSTART</h2>
+          <div className="space-y-3 mb-8">
+            <div className="flex items-start gap-3">
+              <div className="bg-yellow-400 text-blue-900 w-7 h-7 flex items-center justify-center flex-shrink-0 border-2 border-cyan-50 text-xs font-bold">
                 1
               </div>
-              <p className="text-green-200 text-xs leading-relaxed pt-1">
-                Click the Connect Wallet button below
+              <p className="text-slate-700 text-xs leading-relaxed pt-0.5 font-mono">
+                Click the Connect Wallet button
               </p>
             </div>
-            <div className="flex items-start gap-4">
-              <div className="bg-yellow-400 text-green-900 w-8 h-8 flex items-center justify-center flex-shrink-0 pixel-corners text-sm font-bold">
+            <div className="flex items-start gap-3">
+              <div className="bg-yellow-400 text-blue-900 w-7 h-7 flex items-center justify-center flex-shrink-0 border-2 border-cyan-50 text-xs font-bold">
                 2
               </div>
-              <p className="text-green-200 text-xs leading-relaxed pt-1">
-                Access the dashboard with real-time analytics
+              <p className="text-slate-700 text-xs leading-relaxed pt-0.5 font-mono">
+                Sign with Flow testnet wallet
               </p>
             </div>
-            <div className="flex items-start gap-4">
-              <div className="bg-yellow-400 text-green-900 w-8 h-8 flex items-center justify-center flex-shrink-0 pixel-corners text-sm font-bold">
+            <div className="flex items-start gap-3">
+              <div className="bg-yellow-400 text-blue-900 w-7 h-7 flex items-center justify-center flex-shrink-0 border-2 border-cyan-50 text-xs font-bold">
                 3
               </div>
-              <p className="text-green-200 text-xs leading-relaxed pt-1">
-                Explore contracts, transactions, tokens, and more
+              <p className="text-slate-700 text-xs leading-relaxed pt-0.5 font-mono">
+                Explore contracts, tokens, transactions & more
               </p>
             </div>
           </div>
 
           <button
+            onMouseEnter={() => {
+              // warm up discovery endpoints to reduce latency when user clicks
+              try {
+                // preconnect domains
+                const preconnect = (href: string) => {
+                  const l = document.createElement('link');
+                  l.rel = 'preconnect';
+                  l.href = href;
+                  l.crossOrigin = 'anonymous';
+                  document.head.appendChild(l);
+                };
+                preconnect('https://fcl-discovery.onflow.org');
+                preconnect('https://rest-testnet.onflow.org');
+                preconnect('https://testnet.flowscan.org');
+                // warm fetch (no-cors) to start DNS/TLS handshake
+                try { fetch('https://fcl-discovery.onflow.org/testnet/authn', { mode: 'no-cors' }); } catch { /* ignore */ }
+              } catch {
+                // ignore
+              }
+            }}
             onClick={onConnect}
-            className="w-full bg-yellow-400 hover:bg-yellow-300 text-green-900 py-4 px-6 flex items-center justify-center gap-3 transition-colors pixel-corners text-sm font-bold"
+            className="w-full pixel-button bg-cyan-400 hover:bg-yellow-400 text-blue-900 py-3 px-6 flex items-center justify-center gap-3 font-bold border-4 border-cyan-50"
           >
             <Wallet className="w-6 h-6" />
             <span>CONNECT WALLET</span>
@@ -95,9 +123,10 @@ export default function LandingPage({ onConnect }: LandingPageProps) {
           </button>
         </div>
 
-        <footer className="text-center mt-16 text-green-400 text-xs">
-          <p>Book of Truth - Flow Blockchain Explorer</p>
-          <p className="mt-2">Powered by Cadence & EVM</p>
+        {/* FOOTER */}
+        <footer className="text-center mt-16 text-cyan-300 text-xs font-mono">
+          <p className="neon-text">BOOK OF TRUTH</p>
+          <p className="text-slate-600 mt-2">Flow Testnet Explorer • Powered by FCL & Flowscan</p>
         </footer>
       </div>
     </div>

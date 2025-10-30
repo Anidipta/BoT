@@ -1,7 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import * as fcl from '@onflow/fcl';
 import { Activity, FileCode, Coins, Zap, ArrowRight, Wallet } from 'lucide-react';
-import StatCard from './StatCard';
 import ChartCard from './ChartCard';
 
 interface DashboardProps {
@@ -24,8 +23,6 @@ export default function Dashboard({ walletAddress, onViewDetails }: DashboardPro
     activeContracts: 0
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [recentActivity, setRecentActivity] = useState<any[]>([]);
   const [walletMetric, setWalletMetric] = useState<number | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const intervalRef = useRef<number | null>(null);
@@ -88,169 +85,88 @@ export default function Dashboard({ walletAddress, onViewDetails }: DashboardPro
   // extraction function memoized so effect can depend on it safely
   const extractAndSaveWalletData = useCallback(async (addr: string) => {
     try {
-      addLog(`Starting extraction for ${addr}`);
+      addLog(`Starting data extraction for ${addr}`);
 
-      // fetch balance from Flow REST
+      // Try to scrape from backend first (if available)
+      let scrapedData = null;
+      try {
+        const scrapeRes = await fetch(`http://localhost:8787/api/scrape/${addr}`);
+        if (scrapeRes.ok) {
+          scrapedData = await scrapeRes.json();
+          addLog(`Scraped account data from Flowscan: ${scrapedData.transactions?.length || 0} transactions`);
+        } else {
+          addLog(`Backend scraper unavailable (${scrapeRes.status}), falling back to Flow REST`);
+        }
+      } catch (err) {
+        addLog(`Backend scraper not available: ${String(err).slice(0, 50)}`);
+      }
+
+      // Fetch balance from Flow REST
       let balance = 0;
       try {
         const res = await fetch(`https://rest-testnet.onflow.org/v1/accounts/${addr}`);
         if (res.ok) {
           const json = await res.json();
           balance = Number(json?.account?.balance ?? json?.balance ?? 0) / 1e8;
-          addLog(`Fetched balance ${balance} FLOW for ${addr}`);
+          addLog(`Flow balance: ${balance.toFixed(2)} FLOW`);
         } else {
-          addLog(`Flow REST responded ${res.status} for ${addr}`);
+          addLog(`Flow REST responded ${res.status}`);
         }
       } catch (err) {
-        addLog(`Failed to fetch Flow account: ${String(err)}`);
+        addLog(`Failed to fetch Flow balance: ${String(err).slice(0, 50)}`);
       }
 
-    // fetch detailed data from Flowscan (testnet) - collect everything we can
-    // Use dev proxy when running locally to avoid CORS blocks; in production this will call the real host
-    const flowscanBase = import.meta.env.DEV ? '/flowscan-api/api' : 'https://testnet.flowscan.org/api';
-    // Also allow fetching the public account HTML page (flowscan.io) to extract tx links
-    const flowscanPageBase = import.meta.env.DEV ? '/flowscan-page' : 'https://testnet.flowscan.io';
-    const details: Record<string, unknown> = {};
-      const tryFetch = async (path: string, key: string) => {
-        try {
-          const r = await fetch(`${flowscanBase}${path}`);
-          if (r.ok) {
-            const j = await r.json();
-            details[key] = j;
-            addLog(`Flowscan: fetched ${key} (${Object.keys(j).length || 'items'})`);
-          } else {
-            addLog(`Flowscan ${key} responded ${r.status}`);
-          }
-        } catch (e) {
-          addLog(`Flowscan fetch ${key} failed: ${String(e)}`);
-        }
+      // Collect data
+      const details: Record<string, unknown> = {
+        balance,
+        fetched_at: new Date().toISOString(),
+        account: null,
+        flowscanData: scrapedData
       };
 
-      await tryFetch(`/address/${addr}`, 'account');
-      await tryFetch(`/address/${addr}/transactions`, 'transactions');
-      await tryFetch(`/address/${addr}/tokens`, 'tokens');
-      await tryFetch(`/address/${addr}/nfts`, 'nfts');
-      await tryFetch(`/address/${addr}/events`, 'events');
-
-      // Also fetch and parse the Flowscan account HTML page to extract transaction links and other page-only data
+      // Compute token count and metric
+      let tokenCount = 0;
       try {
-        const pageRes = await fetch(`${flowscanPageBase}/account/${addr}`);
-        if (pageRes.ok) {
-          const html = await pageRes.text();
-          try {
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(html, 'text/html');
-            const anchors = Array.from(doc.querySelectorAll('a'))
-              .map((a) => a.getAttribute('href') || a.href)
-              .filter(Boolean) as string[];
-            const txLinks = Array.from(new Set(anchors.filter((h) => /transaction|txn|txs|transactions|tx/.test(h))));
-
-            // extract a structured account summary from the page text using heuristics
-            const pageText = doc.body ? doc.body.innerText : html;
-            const extractNumber = (label: string) => {
-              const re = new RegExp(label + '\\s*([\\d,]+\\.?\\d*)', 'i');
-              const m = pageText.match(re);
-              if (m && m[1]) return m[1].replace(/,/g, '');
-              return null;
-            };
-
-            const summary: Record<string, string | null> = {};
-            summary.primary = extractNumber('Primary') || extractNumber('Primary\\s*FLOW');
-            summary.staked = extractNumber('Staked') || null;
-            summary.delegated = extractNumber('Delegated') || null;
-            summary.total = extractNumber('Total') || extractNumber('Total\\s*FLOW');
-            summary.storage_flow = extractNumber('Storage FLOW') || null;
-            // storage size (e.g., "1.43 KB / 9,303.91 GB")
-            const storageMatch = pageText.match(/Storage[\s\S]{0,40}?([\d.,]+\s*(KB|MB|GB|B))/i);
-            summary.storage_size = storageMatch ? storageMatch[1] : null;
-
-            details.page = { txLinks, html_snippet: html.slice(0, 8000), summary };
-            addLog(`Flowscan page parsed: ${txLinks.length} tx links found`);
-
-            // attempt to fetch individual tab pages to extract tables (transactions, scheduled, keys, tokens, ft transfers, nft transfers, collections)
-            const tabNames = [
-              'transactions',
-              'scheduled',
-              'keys',
-              'tokens',
-              'ft-transfers',
-              'nft-transfers',
-              'collections',
-            ];
-            const tabs: Record<string, unknown> = {};
-            for (const tab of tabNames) {
-              try {
-                const tabRes = await fetch(`${flowscanPageBase}/account/${addr}?tab=${tab}`);
-                if (!tabRes.ok) {
-                  addLog(`Flowscan tab ${tab} responded ${tabRes.status}`);
-                  tabs[tab] = { error: `status ${tabRes.status}` };
-                  continue;
-                }
-                const tabHtml = await tabRes.text();
-                const tabDoc = parser.parseFromString(tabHtml, 'text/html');
-                // collect table rows as arrays of cell text and links
-                const rows = Array.from(tabDoc.querySelectorAll('table tr'));
-                const parsedRows = rows.map((tr) => {
-                  const cells = Array.from(tr.querySelectorAll('td')).map((td) => td.innerText.trim());
-                  const links = Array.from(tr.querySelectorAll('a')).map((a) => a.getAttribute('href') || a.href);
-                  return { cells, links };
-                }).filter((r) => r.cells.length > 0);
-                tabs[tab] = parsedRows;
-                addLog(`Parsed ${parsedRows.length} rows from tab ${tab}`);
-              } catch (err) {
-                addLog(`Failed to fetch/parse tab ${tab}: ${String(err)}`);
-                tabs[tab] = { error: String(err) };
-              }
-            }
-            details.page.tabs = tabs;
-
-          } catch (err) {
-            addLog(`Flowscan page parse failed: ${String(err)}`);
-            details.page = { error: String(err) };
+        // Fetch account data which includes contract info
+        const accountRes = await fetch(`https://rest-testnet.onflow.org/v1/accounts/${addr}`);
+        if (accountRes.ok) {
+          const accountData = await accountRes.json();
+          details.account = accountData;
+          
+          // Count contracts deployed
+          if (accountData.account?.contracts) {
+            tokenCount = Object.keys(accountData.account.contracts).length;
+            addLog(`Found ${tokenCount} contracts deployed`);
           }
+        }
+      } catch (err) {
+        addLog(`Failed to fetch account details: ${String(err).slice(0, 50)}`);
+      }
+
+      const metricValue = Number(balance || 0) + Number(tokenCount || 0);
+
+      // Only persist if details have changed compared to last snapshot
+      try {
+        const existing = loadSnapshots(addr);
+        const last = existing && existing.length > 0 ? existing[0] : null;
+        const lastHash = last ? JSON.stringify(last.details || {}) + '|' + String(last.balance || 0) : null;
+        const newHash = JSON.stringify(details || {}) + '|' + String(balance || 0);
+        if (!lastHash || newHash !== lastHash) {
+          const snapshot = { wallet: addr, balance, tokenCount, metricValue, details, fetched_at: new Date().toISOString() };
+          saveSnapshot(addr, snapshot);
+          addLog(`Snapshot saved (balance=${balance.toFixed(2)}, contracts=${tokenCount})`);
         } else {
-          addLog(`Flowscan page responded ${pageRes.status}`);
+          addLog('No changes detected');
         }
       } catch (e) {
-        addLog(`Flowscan page fetch failed: ${String(e)}`);
+        addLog(`Failed to save snapshot: ${String(e).slice(0, 50)}`);
       }
 
-      // Compute token count and metric client-side, then persist snapshot in localStorage per-wallet
-      try {
-        let tokenCount = 0;
-        if (details.tokens && Array.isArray(details.tokens)) tokenCount = details.tokens.length;
-        else if (details.nfts && Array.isArray(details.nfts)) tokenCount = details.nfts.length;
-        else if (Array.isArray(details.transactions)) tokenCount = details.transactions.length;
-
-        const metricValue = Number(balance || 0) + Number(tokenCount || 0);
-
-        // Only persist if details have changed compared to last snapshot
-        try {
-          const existing = loadSnapshots(addr);
-          const last = existing && existing.length > 0 ? existing[0] : null;
-          const lastHash = last ? JSON.stringify(last.details || {}) + '|' + String(last.balance || 0) : null;
-          const newHash = JSON.stringify(details || {}) + '|' + String(balance || 0);
-          if (!lastHash || newHash !== lastHash) {
-            const snapshot = { wallet: addr, balance, tokenCount, metricValue, details, fetched_at: new Date().toISOString() };
-            saveSnapshot(addr, snapshot);
-            addLog(`Saved snapshot locally (tokens=${tokenCount}, metric=${metricValue})`);
-          } else {
-            addLog('No changes detected vs last snapshot; skipping save');
-          }
-        } catch (e) {
-          addLog(`Failed to load/save snapshot locally: ${String(e)}`);
-        }
-
-        setWalletMetric(metricValue);
-      } catch (e) {
-        addLog(`Failed to compute/save metric locally: ${String(e)}`);
-      }
-
-      // Update local UI (balance)
-      setStats((s) => ({ ...s, flowBalance: Number(balance) }));
-      setStats((s) => ({ ...s, flowBalance: Number(balance) }));
+      setWalletMetric(metricValue);
+      setStats((s) => ({ ...s, flowBalance: Number(balance), totalContracts: tokenCount }));
     } catch (error) {
-      console.error('Error extracting/saving wallet data:', error);
+      console.error('Extraction error:', error);
+      addLog(`Error: ${String(error).slice(0, 50)}`);
     }
   }, [addLog, loadSnapshots, saveSnapshot]);
 
@@ -282,21 +198,25 @@ export default function Dashboard({ walletAddress, onViewDetails }: DashboardPro
 
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-slate-100">
+    <div className="min-h-screen bg-blue-50">
       <div className="container mx-auto px-4 py-8">
-        <header className="mb-8">
-          <div className="flex items-center justify-between mb-6">
-            <h1 className="text-fuchsia-700 text-2xl md:text-3xl">DASHBOARD</h1>
-            <div className="flex items-center gap-3">
-              <div className="bg-white border-2 border-slate-300 px-4 py-2 pixel-corners">
-                <div className="flex items-center gap-2 text-slate-700 text-xs">
-                  <Wallet className="w-4 h-4" />
-                  <span className="text-xs font-mono">{formatAddr(walletAddress)}</span>
-                </div>
+        {/* HEADER: Wallet Info + Disconnect */}
+        <header className="mb-8 border-4 border-cyan-50 bg-blue-100 p-4">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <h1 className="text-3xl font-bold mb-2">WALLET</h1>
+              <div className="text-slate-700 font-mono text-sm">
+                Chain: <span className="neon-text-lime">Flow Testnet</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="bg-blue-200 border-2 border-cyan-50 px-4 py-3">
+                <div className="text-cyan-300 text-xs font-bold mb-1">ADDRESS</div>
+                <div className="text-slate-700 text-xs font-mono neon-text">{formatAddr(walletAddress)}</div>
               </div>
               <button
                 onClick={handleDisconnect}
-                className="bg-slate-200 hover:bg-slate-100 text-slate-900 px-3 py-1 text-xs pixel-corners border border-slate-300"
+                className="pixel-button bg-red-600 hover:bg-red-500 text-white font-bold px-4 py-2 border-2 border-red-800"
               >
                 Disconnect
               </button>
@@ -304,74 +224,97 @@ export default function Dashboard({ walletAddress, onViewDetails }: DashboardPro
           </div>
         </header>
 
-        <div className="grid md:grid-cols-3 gap-6 mb-8">
-          <StatCard
-            icon={<FileCode className="w-8 h-8" />}
-            title="Contracts"
-            value={stats.totalContracts}
-            subtitle={`${stats.activeContracts} active`}
-            color="green"
-            onClick={() => onViewDetails('contracts')}
-          />
-          <StatCard
-            icon={<Activity className="w-8 h-8" />}
-            title="Transactions"
-            value={stats.totalTransactions}
-            subtitle="Total processed"
-            color="blue"
-            onClick={() => onViewDetails('transactions')}
-          />
-          <StatCard
-            icon={<Zap className="w-8 h-8" />}
-            title="Events"
-            value={stats.totalEvents}
-            subtitle="Blockchain events"
-            color="yellow"
-            onClick={() => onViewDetails('events')}
-          />
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-6 mb-8">
-          <StatCard
-            icon={<Coins className="w-8 h-8" />}
-            title="Collections"
-            value={stats.totalCollections}
-            subtitle="NFT collections"
-            color="purple"
-            onClick={() => onViewDetails('collections')}
-          />
-          <StatCard
-            icon={<Wallet className="w-8 h-8" />}
-            title="FLOW Balance"
-            value={`${stats.flowBalance.toFixed(2)}`}
-            subtitle="Native tokens"
-            color="cyan"
-            onClick={() => onViewDetails('balance')}
-          />
-        </div>
-
-        <div className="mb-8 flex flex-col md:flex-row gap-4">
-          <div className="bg-white border-2 border-slate-300 p-4 pixel-corners inline-block">
-            <h3 className="text-fuchsia-700 text-sm">Computed Wallet Metric</h3>
-            <div className="text-slate-800 text-2xl font-mono mt-2">{walletMetric !== null ? walletMetric : '—'}</div>
-            <p className="text-slate-500 text-xs mt-1">(balance + token count)</p>
+        {/* MAIN STATS GRID */}
+        <div className="grid md:grid-cols-3 gap-4 mb-8">
+          <div className="pixel-card">
+            <div className="flex items-center justify-between mb-2">
+              <FileCode className="w-8 h-8 text-cyan-400" />
+              <div className="text-right">
+                <div className="text-yellow-400 text-2xl font-bold">{stats.totalContracts}</div>
+                <div className="text-cyan-300 text-xs">contracts</div>
+              </div>
+            </div>
+            <button onClick={() => onViewDetails('contracts')} className="text-yellow-400 text-xs hover:text-yellow-300">view →</button>
           </div>
 
-          <div className="bg-white border-2 border-slate-300 p-4 pixel-corners flex-1">
-            <h3 className="text-fuchsia-700 text-sm">Recent Logs</h3>
-            <div className="mt-2 text-xs text-slate-500 font-mono max-h-36 overflow-auto">
+          <div className="pixel-card">
+            <div className="flex items-center justify-between mb-2">
+              <Activity className="w-8 h-8 text-yellow-400" />
+              <div className="text-right">
+                <div className="text-cyan-400 text-2xl font-bold">{stats.totalTransactions}</div>
+                <div className="text-cyan-300 text-xs">transactions</div>
+              </div>
+            </div>
+            <button onClick={() => onViewDetails('transactions')} className="text-cyan-400 text-xs hover:text-cyan-300">view →</button>
+          </div>
+
+          <div className="pixel-card">
+            <div className="flex items-center justify-between mb-2">
+              <Zap className="w-8 h-8 text-fuchsia-400" />
+              <div className="text-right">
+                <div className="text-fuchsia-400 text-2xl font-bold">{stats.totalEvents}</div>
+                <div className="text-cyan-300 text-xs">events</div>
+              </div>
+            </div>
+            <button onClick={() => onViewDetails('events')} className="text-fuchsia-400 text-xs hover:text-fuchsia-300">view →</button>
+          </div>
+        </div>
+
+        {/* SECONDARY STATS GRID */}
+        <div className="grid md:grid-cols-2 gap-4 mb-8">
+          <div className="pixel-card">
+            <div className="flex items-center justify-between mb-2">
+              <Coins className="w-8 h-8 text-yellow-400" />
+              <div className="text-right">
+                <div className="text-yellow-400 text-2xl font-bold">{stats.totalCollections}</div>
+                <div className="text-cyan-300 text-xs">collections</div>
+              </div>
+            </div>
+            <button onClick={() => onViewDetails('collections')} className="text-yellow-400 text-xs hover:text-yellow-300">view →</button>
+          </div>
+
+          <div className="pixel-card stat-highlight">
+            <div className="flex items-center justify-between mb-2">
+              <Wallet className="w-8 h-8 text-cyan-400" />
+              <div className="text-right">
+                <div className="neon-text text-2xl font-bold">{stats.flowBalance.toFixed(2)}</div>
+                <div className="text-cyan-300 text-xs">FLOW tokens</div>
+              </div>
+            </div>
+            <button onClick={() => onViewDetails('balance')} className="text-cyan-400 text-xs hover:text-cyan-300">view →</button>
+          </div>
+        </div>
+
+        {/* METRIC + LOGS PANEL */}
+        <div className="grid md:grid-cols-3 gap-4 mb-8">
+          {/* Wallet Metric Card */}
+          <div className="pixel-card border-4 border-cyan-400">
+            <h3 className="neon-text text-xs font-bold mb-3">WALLET METRIC</h3>
+            <div className="neon-text-lime text-4xl font-mono font-bold mb-1">
+              {walletMetric !== null ? walletMetric.toFixed(0) : '—'}
+            </div>
+            <div className="text-cyan-300 text-xs">(balance + token count)</div>
+          </div>
+
+          {/* Recent Logs Panel */}
+          <div className="pixel-card md:col-span-2">
+            <h3 className="neon-text text-xs font-bold mb-3">RECENT LOGS</h3>
+            <div className="bg-blue-50 border-2 border-cyan-50 p-2 max-h-24 overflow-auto text-xs font-mono text-cyan-300">
               {logs.length === 0 ? (
-                <div className="text-blue-400">No logs yet</div>
+                <div className="text-slate-500">&gt; awaiting activity...</div>
               ) : (
                 logs.map((l, idx) => (
-                  <div key={idx} className="mb-1">{l}</div>
+                  <div key={idx} className="mb-0.5 text-cyan-400">
+                    <span className="text-yellow-400">&gt;</span> {l}
+                  </div>
                 ))
               )}
             </div>
           </div>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-6 mb-8">
+        {/* CHARTS GRID */}
+        <div className="grid md:grid-cols-2 gap-4 mb-8">
           <ChartCard
             title="Transaction Volume"
             data={[
@@ -384,50 +327,40 @@ export default function Dashboard({ walletAddress, onViewDetails }: DashboardPro
               { label: 'Sun', value: 56 }
             ]}
             color="cyan"
+            type="radar"
           />
           <ChartCard
             title="Contract Deployments"
             data={[
-              { label: 'Cadence', value: stats.totalContracts * 0.6 },
-              { label: 'EVM', value: stats.totalContracts * 0.4 }
+              { label: 'Cadence', value: stats.totalContracts * 0.6, value2: stats.totalContracts * 0.4 },
+              { label: 'EVM', value: stats.totalContracts * 0.4, value2: stats.totalContracts * 0.3 }
             ]}
-            color="green"
+            color="yellow"
+            type="stacked"
           />
         </div>
 
-        <div className="bg-white border-2 border-slate-300 p-6 pixel-corners">
+        {/* RECENT ACTIVITY SECTION */}
+        <div className="pixel-card border-4 border-cyan-400">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-fuchsia-700 text-xl">Recent Activity</h2>
+            <h2 className="neon-text text-xl font-bold">RECENT ACTIVITY</h2>
             <button
               onClick={() => onViewDetails('transactions')}
-              className="text-cyan-300 hover:text-cyan-200 flex items-center gap-2 text-xs"
+              className="neon-text text-xs hover:text-cyan-300 flex items-center gap-2"
             >
               <span>View All</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
-          <div className="space-y-3">
-            {recentActivity.map((tx) => (
-              <div
-                key={tx.id}
-                className="bg-blue-900/50 border-2 border-blue-700 p-4 pixel-corners hover:bg-blue-900/70 transition-colors cursor-pointer"
-                onClick={() => onViewDetails('transactions')}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-cyan-300 text-xs font-mono">{tx.tx_hash.slice(0, 16)}...</span>
-                  <span className={`text-xs px-2 py-1 pixel-corners ${
-                    tx.status === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
-                  }`}>
-                    {tx.status}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-xs text-blue-300">
-                  <span>{tx.type}</span>
-                  <span>Block #{tx.block_number}</span>
-                </div>
-              </div>
-            ))}
+
+          <div className="text-center py-8 text-slate-500 text-xs font-mono">
+            &gt; Connect wallet to see activity
           </div>
+        </div>
+
+        {/* Footer Info */}
+        <div className="mt-8 text-center text-cyan-300 text-xs font-mono">
+          <div>Polling every 60 seconds • <span className="neon-text-lime">✓ Flow REST Online</span></div>
         </div>
       </div>
     </div>

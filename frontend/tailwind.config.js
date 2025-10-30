@@ -4,49 +4,49 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Re-map common color names to the new cream/white/silver + neon accents palette
+        // Pixel-art retro color scheme: deep purple/navy base, neon cyan & lime green accents
         blue: {
-          50: '#fffdf9',
-          100: '#fff8ef',
-          200: '#fbf2e6',
-          300: '#f3e9df',
-          400: '#e8e2da',
-          500: '#d9d3cd',
-          600: '#bfb7aa',
-          700: '#9e9891',
-          800: '#7f7874',
-          900: '#5f5854'
+          50: '#0a0e27',   // almost black (deep navy)
+          100: '#1a1d3a',  // dark navy
+          200: '#2d1b69',  // deep purple
+          300: '#3d2d7a',  // purple
+          400: '#4a3a8a',  // mid purple
+          500: '#5a4a9a',  // bright purple
+          600: '#6b5aaa',  // bright purple
+          700: '#7a6aba',  // lighter purple
+          800: '#8a7aca',  // even lighter
+          900: '#9a8ada'   // light purple
         },
         cyan: {
-          50: '#f8fafc',
-          100: '#f1f5f9',
-          200: '#e2e8f0',
-          300: '#cbd5e1',
-          400: '#94a3b8',
-          500: '#64748b',
-          600: '#475569',
-          700: '#334155',
-          800: '#1e293b',
-          900: '#0f172a'
+          50: '#000000',   // black (pixel borders)
+          100: '#1a1a1a',  // near black
+          200: '#333333',  // dark gray
+          300: '#555555',  // gray
+          400: '#00d9ff',  // neon cyan (bright)
+          500: '#00b8d4',  // cyan
+          600: '#0088aa',  // darker cyan
+          700: '#005577',  // deep cyan
+          800: '#003344',  // very deep cyan
+          900: '#001122'   // nearly black cyan
         },
         yellow: {
-          50: '#fff4ff',
-          100: '#fee2ff',
-          200: '#fec8ff',
-          300: '#fda4ff',
-          400: '#f472b6',
-          500: '#d946ef',
-          600: '#be185d',
-          700: '#9d174d',
-          800: '#831843',
-          900: '#5b0f2e'
+          50: '#000000',   // black
+          100: '#1a1a1a',  // near black
+          200: '#333333',  // dark gray
+          300: '#555555',  // gray
+          400: '#00ff00',  // neon lime green (bright)
+          500: '#00dd00',  // bright green
+          600: '#00bb00',  // green
+          700: '#009900',  // darker green
+          800: '#006600',  // dark green
+          900: '#003300'   // very dark green
         },
         green: {
           50: '#f0fdf4',
           100: '#dcfce7',
           200: '#bbf7d0',
           300: '#86efac',
-          400: '#4ade80',
+          400: '#00ff00',  // neon lime (accent)
           500: '#22c55e',
           600: '#16a34a',
           700: '#15803d',
@@ -54,52 +54,52 @@ export default {
           900: '#14532d'
         },
         purple: {
-          50: '#faf5ff',
-          100: '#f3e8ff',
-          200: '#e9d5ff',
-          300: '#d8b4fe',
-          400: '#c084fc',
-          500: '#a855f7',
-          600: '#9333ea',
-          700: '#7e22ce',
-          800: '#6b21a8',
-          900: '#4c1375'
+          50: '#0a0e27',   // deep navy
+          100: '#1a1d3a',  // dark purple
+          200: '#2d1b69',
+          300: '#3d2d7a',
+          400: '#4a3a8a',
+          500: '#5a4a9a',
+          600: '#6b5aaa',
+          700: '#7a6aba',
+          800: '#8a7aca',
+          900: '#9a8ada'
         },
         red: {
-          50: '#fff1f2',
-          100: '#ffe4e6',
-          200: '#fecdd3',
-          300: '#fda4af',
-          400: '#fb7185',
-          500: '#f43f5e',
-          600: '#e11d48',
-          700: '#be123c',
-          800: '#9f1239',
-          900: '#881337'
+          50: '#000000',
+          100: '#1a1a1a',
+          200: '#ff3333',  // bright red
+          300: '#ff5555',
+          400: '#ff6666',
+          500: '#ff4444',
+          600: '#dd0000',
+          700: '#bb0000',
+          800: '#990000',
+          900: '#660000'
         },
         slate: {
-          50: '#f8fafc',
-          100: '#f1f5f9',
-          200: '#e2e8f0',
-          300: '#cbd5e1',
-          400: '#94a3b8',
-          500: '#64748b',
-          600: '#475569',
-          700: '#334155',
-          800: '#1e293b',
-          900: '#0f172a'
+          50: '#000000',   // black
+          100: '#1a1a1a',
+          200: '#333333',
+          300: '#555555',
+          400: '#777777',
+          500: '#999999',
+          600: '#aaaaaa',
+          700: '#cccccc',
+          800: '#dddddd',
+          900: '#eeeeee'   // near white
         },
         fuchsia: {
-          50: '#fff1f7',
-          100: '#fed7f3',
-          200: '#fbcfe8',
-          300: '#f0abfc',
-          400: '#f472b6',
-          500: '#d946ef',
-          600: '#c026d3',
-          700: '#a21caf',
-          800: '#86198f',
-          900: '#701a75'
+          50: '#ff00ff',   // neon magenta
+          100: '#ff33ff',
+          200: '#ff55ff',
+          300: '#ff77ff',
+          400: '#ff99ff',
+          500: '#dd00dd',
+          600: '#bb00bb',
+          700: '#990099',
+          800: '#660066',
+          900: '#330033'
         }
       }
     },

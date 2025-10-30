@@ -13,6 +13,22 @@ function App() {
   const [detailCategory, setDetailCategory] = useState('');
 
   useEffect(() => {
+    // warm up Flow discovery and API endpoints to reduce latency when authenticating
+    try {
+      const preconnect = (href: string) => {
+        const l = document.createElement('link');
+        l.rel = 'preconnect';
+        l.href = href;
+        l.crossOrigin = 'anonymous';
+        document.head.appendChild(l);
+      };
+      preconnect('https://fcl-discovery.onflow.org');
+      preconnect('https://rest-testnet.onflow.org');
+      // try a no-cors fetch to kick off TCP/TLS handshake
+      try { fetch('https://fcl-discovery.onflow.org/testnet/authn', { mode: 'no-cors' }); } catch { /* ignore */ }
+    } catch {
+      // ignore
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const unsubscribe = fcl.currentUser().subscribe((user: any) => {
       if (user && user.addr) {

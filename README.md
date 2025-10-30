@@ -52,8 +52,10 @@ Most blockchain analytics workflows require either heavy infrastructure or repea
 
 - Developer Convenience & UX
   - Dev-time Vite proxy to avoid CORS when calling Flowscan during local development.
+  - **Optional backend scraper** using Puppeteer for reliable HTML extraction (transactions, tokens, collections).
   - Minimal setup: run the frontend, connect a wallet, view logs and snapshots immediately.
-  - Theme and UI tuned for readability and fast scanning (cream/white/silver with neon accents by default).
+  - Interactive charts: radar chart for transaction volume, stacked bar chart for deployments.
+  - Pixel-art retro theme with neon accents.
 
 - Export & Extendability
   - Export snapshots to JSON to feed offline tools or analytics pipelines.
@@ -91,7 +93,9 @@ BoT focuses on per-wallet, verifiable snapshots. Dune Analytics is a complementa
 * **Frontend:** Vite + React + TypeScript
 * **Styling:** TailwindCSS (custom extended theme)
 * **Flow Auth:** @onflow/fcl
-* **Data Extraction:** Flow REST + Flowscan API + DOMParser
+* **Data Extraction:** Flow REST + Flowscan API + **Puppeteer (optional backend scraper)**
+* **Charts:** Recharts (radar, stacked bar, simple bar)
+* **Backend (optional):** Express + MongoDB
 * **Dev Tools:** Vite proxy for local CORS bypass
 
 ---

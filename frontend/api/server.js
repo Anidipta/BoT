@@ -1,11 +1,12 @@
 import express from 'express';
 import cors from 'cors';
-import { json } from 'body-parser';
+import bodyParser from 'body-parser';
 import { MongoClient } from 'mongodb';
+import { scrapeFlowscanAccount } from './scraper.js';
 
 const app = express();
 app.use(cors());
-app.use(json());
+app.use(bodyParser.json());
 
 const MONGODB_URL = process.env.MONGODB_URL || process.env.VITE_MONGODB_URL;
 
@@ -25,6 +26,39 @@ const connectMongo = async () => {
   db = dbClient.db();
   console.log('Connected to MongoDB');
 };
+
+// New endpoint: Scrape Flowscan account page
+app.get('/api/scrape/:address', async (req, res) => {
+  try {
+    const { address } = req.params;
+    if (!address) return res.status(400).json({ error: 'address is required' });
+
+    console.log(`[API] Scraping account: ${address}`);
+    const result = await scrapeFlowscanAccount(address);
+
+    if (!result.success) {
+      return res.status(500).json({ error: 'scrape_failed', detail: result.error });
+    }
+
+    // Store scraped data in MongoDB
+    try {
+      await connectMongo();
+      const snapshots = db.collection('flowscan_snapshots');
+      await snapshots.insertOne({
+        address,
+        scrapedAt: new Date(),
+        data: result
+      });
+    } catch (err) {
+      console.warn('Failed to store in MongoDB:', err);
+    }
+
+    return res.json(result);
+  } catch (err) {
+    console.error('Error in /api/scrape/:address', err);
+    return res.status(500).json({ error: 'internal_error', detail: String(err) });
+  }
+});
 
 app.post('/api/upsert-wallet', async (req, res) => {
   try {
